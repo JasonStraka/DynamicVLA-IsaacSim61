@@ -1,0 +1,156 @@
+# -*- coding: utf-8 -*-
+#
+# @File:   test.py
+# @Author: Haozhe Xie
+# @Date:   2025-04-04 10:36:03
+# @Last Modified by: Haozhe Xie
+# @Last Modified at: 2025-10-01 21:31:52
+# @Email:  root@haozhexie.com
+
+import argparse
+import logging
+import os
+import sys
+
+from omni.isaac.kit import SimulationApp
+from tqdm import tqdm
+
+PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+sys.path.append(os.path.dirname(__file__))
+
+
+def create_object_usd(curr_stage, root_prim_path):
+    import isaacsim.core.utils.prims as prim_utils
+    from pxr import UsdPhysics
+
+    prim_utils.create_prim(
+        root_prim_path,
+        prim_type="Xform",
+        translation=[0.0, 0.0, 0.0],
+        orientation=[1.0, 0.0, 0.0, 0.0],
+    )
+    curr_stage.SetDefaultPrim(curr_stage.GetPrimAtPath(root_prim_path))
+    UsdPhysics.RigidBodyAPI.Apply(curr_stage.GetPrimAtPath(root_prim_path))
+
+
+def create_asset_prim(_, prim_path, usd_path, scale=(1.0, 1.0, 1.0)):
+    import isaacsim.core.utils.prims as prim_utils
+
+    prim_utils.create_prim(prim_path, prim_type="Mesh", usd_path=usd_path, scale=scale)
+
+
+def _get_collider_type(category):
+    COLLIDERS = {
+        "apple": "Cylinder",
+        "can": "Cylinder",
+    }
+    assert category in COLLIDERS
+    return COLLIDERS[category]
+
+
+def create_approximate_collider(curr_stage, prim_path, category):
+    import isaacsim.core.utils.prims as prim_utils
+    from pxr import UsdGeom, UsdPhysics
+
+    prim_utils.create_prim(prim_path, prim_type=_get_collider_type(category))
+    UsdPhysics.CollisionAPI.Apply(curr_stage.GetPrimAtPath(prim_path))
+    UsdGeom.Imageable(curr_stage.GetPrimAtPath(prim_path)).MakeInvisible()
+
+
+def create_mesh_collider(curr_stage, prim_path):
+    from isaaclab.sim.utils import safe_set_attribute_on_usd_schema
+    from pxr import PhysxSchema, UsdPhysics
+
+    prim = curr_stage.GetPrimAtPath(prim_path)
+    assert prim.GetTypeName() == "Mesh"
+    UsdPhysics.CollisionAPI.Apply(prim)
+    usd_collision_api = UsdPhysics.CollisionAPI(prim)
+
+    physx_collision_api = PhysxSchema.PhysxCollisionAPI(prim)
+    if not physx_collision_api:
+        physx_collision_api = PhysxSchema.PhysxCollisionAPI.Apply(prim)
+
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+    mesh_collision_api.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
+    # set into USD API
+    safe_set_attribute_on_usd_schema(
+        usd_collision_api,
+        "collision_enabled",
+        True,
+        camel_case=True,
+    )
+
+
+def create_mass_attr(curr_stage, prim_path, mass):
+    from pxr import UsdPhysics
+
+    prim = curr_stage.GetPrimAtPath(prim_path)
+    if not prim.HasAPI(UsdPhysics.MassAPI):
+        UsdPhysics.MassAPI.Apply(prim)
+
+    mass_api = UsdPhysics.MassAPI(prim)
+    mass_api.CreateMassAttr(mass)
+
+
+def reset_object_material(prim):
+    from pxr import UsdShade
+
+    mtl = UsdShade.Material(prim)
+    surface = mtl.GetSurfaceOutput().GetConnectedSource()[0]
+    shader = UsdShade.Shader(surface)
+    shader.GetInput("roughness").Set(0.5)
+    shader.GetInput("useSpecularWorkflow").Set(0)
+
+
+def main(input_dir, output_dir, mass, approximate_collider):
+    import isaacsim.core.utils.stage as stage_utils
+
+    GEO_PATH = "/Object/geometry"
+    COL_PATH = "/Object/collider"
+    usd_files = [f for f in os.listdir(input_dir) if f.endswith(".usd")]
+    for uf in tqdm(usd_files):
+        input_file = os.path.join(input_dir, uf)
+        output_file = os.path.join(output_dir, uf)
+        category = os.path.basename(input_file).split("_")[0]
+
+        stage_utils.create_new_stage()
+        stage = stage_utils.get_current_stage()
+        create_object_usd(stage, "/Object")
+        create_asset_prim(stage, GEO_PATH, input_file)
+        if approximate_collider:
+            create_approximate_collider(stage, COL_PATH, category)
+            create_mass_attr(stage, COL_PATH, mass)
+        else:
+            create_mesh_collider(stage, f"{GEO_PATH}/mesh")
+            create_mass_attr(stage, f"{GEO_PATH}/mesh", mass)
+
+        mtl_prim = stage.GetPrimAtPath(f"{GEO_PATH}/mtl/material_0")
+        if mtl_prim.IsValid():
+            reset_object_material(mtl_prim)
+
+        # Remove external references
+        stage.Flatten().Export(output_file)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        format="[%(levelname)s] %(asctime)s %(message)s",
+        level=logging.INFO,
+    )
+    # IssacSim Environment Initialization
+    app = SimulationApp({"headless": True})
+
+    # Arguments for the script
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input_dir", default=os.path.join(PROJECT_HOME, os.pardir, "USD")
+    )
+    parser.add_argument(
+        "--output_dir", default=os.path.join(PROJECT_HOME, os.pardir, "objects")
+    )
+    parser.add_argument("--mass", type=float, default=0.05)
+    parser.add_argument("--approximate-collider", action="store_true")
+    args = parser.parse_args()
+
+    main(args.input_dir, args.output_dir, args.mass, args.approximate_collider)
+    app.close()

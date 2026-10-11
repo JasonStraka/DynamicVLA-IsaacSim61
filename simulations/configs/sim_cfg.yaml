@@ -1,0 +1,102 @@
+scene:
+  cameras: # Configure camera position and pose
+    - name: "opst_cam"
+      position: [1, 0, 0.6]
+      rotation: [0, 60, 90]
+      prim_path: "/Robot/OppositeCamera"
+    - name: "side_cam"
+      position: [0.5, 1, 0.35]
+      rotation: [-90, 0, 180]
+      prim_path: "/Robot/SideCamera"
+  objects: # Configure object
+    n_objects: 1 # number of objects in simulation
+    mass: 0.05 # mass of object
+    prob_rnd_quat: 0.85 # probability of object having random orientation. Otherwise it will have default orientation.
+    prob_static: 0.5 # probability of object being static. Otherwise it will be moving.
+    moving_speed: [0.15, 0.75] # range of speed for moving objects, generated uniformly random
+    # moving_speed: [0.05, 0.25]
+    friction: [0.5, 1.5] # range of friction for objects, generated uniformly random
+    perturbation: # configure perturbation for objects. Delete this if you don't intend to introduce perturbation for objects.
+      # force: [0.001, 0.005]
+      # torque: [0.0005, 0.0025]
+    tag_thresholds: # configure thresholds for tag generation. If the value difference between two objects is less than the threshold, the value is considered same, thus also the rank.
+      height: 0.1
+      area: 0.1
+      volume: 0.1
+      position_from_left: 0.1
+      position_from_bottom: 0.1
+      distance_from_robot: 0.3
+      velocity: 0.2
+    categories: # configure available categories of objects. All objects are randomly selected from available items whose category is in this list. Must exist in the objects directory.
+      - apple
+      - avocado
+      - beer
+      - bottle
+      - can
+      - cup
+      - egg
+      - kiwi
+      - lemon
+      - lime
+      - onion
+      - orange
+      - peach
+      - potato
+      - tangerine
+      - tomato
+      # - unseen
+  containers: # Configure containers
+    n_containers: 1 # number of containers
+    mass: 0.1 # mass of container
+    categories: # configure available categories of containers. Must exist in the objects directory.
+      - bowl
+      - box
+      - plate
+      - placemat
+      - tray
+
+camera:
+  width: 480
+  height: 360
+  fps: 25
+  focal_length: 2.3
+  focus_distance: 400
+  horizontal_aperture: 4.6
+  clip:
+    near: 0.01
+    far: 10000
+  data_types:
+    - rgb
+    - semantic_segmentation
+    # - depth
+
+lighting:  # lighting configuration, config for each scene is selected randomly in the respective range.
+  temperature: [4000, 8000]
+  intensity: [150, 750]
+  position:
+    x: [-50, 50]
+    y: [-50, 50]
+    z: [10, 20]
+
+tasks: # configure task behaviour
+  pick:
+    sm: "state_machines.pick_sm.PickStateMachine" # selects the state machine to run when generating scenes executing the respective task
+    episode_length: 10 # max episode length, terminating with failure if exceeded
+  place:
+    sm: "state_machines.place_sm.PlaceStateMachine"
+    episode_length: 12
+  long-horizon:
+    sm: "state_machines.place_sm.PlaceStateMachine"
+    episode_length: 20
+
+robots: # configure robots in simulation
+  franka:
+    init_pose: [0.465906, 0.0, 0.382970, 0.008583, 0.921765, 0.020404, 0.387116]
+    final_pose: [0.3, 0, 0.3, -1, 0, 0, 0]
+    gripper_length: 0.045
+    max_reach_dist: 0.75
+  piper:
+    init_pose: [0.373, 0.0, 0.271, 0.0, 0.9739, 0.0, 0.227]
+    final_pose: [0.373, 0.0, 0.271, -1, 0, 0, 0]
+    gripper_length: 0.09
+    max_reach_dist: 0.55
